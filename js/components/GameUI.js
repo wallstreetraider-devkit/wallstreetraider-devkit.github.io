@@ -1,0 +1,193 @@
+import { html, render, useState, useMemo } from '../lib/preact.standalone.module.js';
+import '../lib/tailwind.module.js';
+import * as api from '../api.js';
+import BalanceSheet from './BalanceSheet.js';
+import StreamingQuotes from './StreamingQuotes.js';
+import View from './View.js';
+import Toolbar from './Toolbar.js';
+import { NewspaperIcon, NotificationIcon } from '../icons.js';
+import Modal from './Modal.js';
+import MarketSparklineGrid from './MarketSparklineGrid.js';
+import Button from './Button.js';
+import StockTicker, { MiniSpark } from './StockTicker.js';
+import Tabs from './Tabs.js';
+import AdvancedChartModal from './AdvancedChartModal.js';
+import { insertCurrencySymbols } from './helpers.js';
+
+const Tab = Tabs.Tab;
+
+const GameUI = () => {
+
+    const [showNotifications, setShowNotifications] = useState(false);
+    const [showMyNews, setShowMyNews] = useState(false);
+    const [expandedNW, setExpandedNW] = useState(false);
+    const [newsSearch, setNewsSearch] = useState('');
+
+    const mil = api.useGameStore(s => s.gameState.mil) || 'M';
+    const nwBaseMultiplier = mil === 'B' ? 1e9 : 1e6;
+
+    const newsHeadlines = api.useGameStore(s => s.gameState.newsHeadlines);
+    const cash = api.useGameStore(s => s.gameState.cash);
+    const otherAssets = api.useGameStore(s => s.gameState.otherAssets);
+    const totalAssets = api.useGameStore(s => s.gameState.totalAssets);
+    const totalDebt = api.useGameStore(s => s.gameState.totalDebt);
+    const netWorth = api.useGameStore(s => s.gameState.netWorth);
+    const trendingNews = api.useGameStore(s => s.gameState.trendingNews);
+    const hyperlinkRegex = api.useGameStore(s => s.gameState.hyperlinkRegex);
+    const activeIndustryNum = api.useGameStore(s => s.gameState.activeIndustryNum);
+    const holdingsTabActive = api.useGameStore(s => s.uiHoldingsTabActive ?? false);
+
+    const streamingQuotes = api.useGameStore(s => s.gameState.streamingQuotesList) || [];
+    const allCompanies = api.useGameStore(s => s.gameState.allCompanies) || [];
+
+    const isFullscreen = activeIndustryNum === -2 || activeIndustryNum >= 0;
+
+    // Build set of "my" entity names for MyNews filtering
+    const myEntityNames = useMemo(() => {
+        const names = new Set();
+        for (const q of streamingQuotes) {
+            if (q.name) names.add(q.name);
+            if (q.symbol) names.add(q.symbol);
+        }
+        return names;
+    }, [streamingQuotes]);
+
+    const filteredHeadlines = useMemo(() => {
+        let rows = newsHeadlines;
+        if (showMyNews && myEntityNames.size > 0) {
+            rows = rows.filter(h => {
+                for (const name of myEntityNames) {
+                    if (h.includes(name)) return true;
+                }
+                return false;
+            });
+        }
+        const terms = newsSearch
+            .toLowerCase()
+            .split(',')
+            .map(t => t.trim())
+            .filter(t => t.length > 0);
+        if (terms.length > 0) {
+            rows = rows.filter(h => {
+                const hl = h.toLowerCase();
+                return terms.some(t => hl.includes(t));
+            });
+        }
+        return rows;
+    }, [newsHeadlines, showMyNews, myEntityNames, newsSearch]);
+
+    return html`
+    <div class="flex flex-col h-full" data-testid="game-ui">
+        <!-- Toolbar -->
+        <${Toolbar} />
+        <${StockTicker} />
+        <div class="game-view flex flex-row gap-2 p-2">
+            <!-- Left column (NW + Balance Sheet + Market grid + Quotes/News tabs) on LEFT, View on RIGHT -->
+            <div class="flex flex-row gap-2 min-h-0" style="flex: 1 1 100%; min-width: 0;">
+                ${!isFullscreen ? html`
+                <div class="game-col-news flex flex-col gap-2 min-h-0" style=${`flex: ${holdingsTabActive ? '0 0 0px' : '2 1 0%'}; overflow: hidden; min-width: 0;`}>
+                    <div class="flex flex-row gap-2" style="height: 140px; flex-shrink: 0; align-items: stretch;">
+                        <div class="panel flex-1 min-w-0" style="display:flex; flex-direction:column; cursor:pointer;" onClick=${() => setExpandedNW(true)}>
+                            <div class="panel-header">Net Worth History</div>
+                            <div class="panel-body flex flex-col w-full" style="padding:0; flex:1; min-height:0; background:#000;">
+                                <${MiniSpark} assetId=${api.HUMAN1_ID} strokeWidth=${1.5} fill=${true} className="net-worth-sparkline" />
+                            </div>
+                        </div>
+                        <div class="flex-[2] min-w-0">
+                            ${html`<${BalanceSheet}
+                                cash=${cash}
+                                otherAssets=${otherAssets}
+                                totalAssets=${totalAssets}
+                                totalDebt=${totalDebt}
+                                netWorth=${netWorth}
+                            />`}
+                        </div>
+                    </div>
+                    <div class="min-h-0 overflow-y-auto" style="flex-shrink: 0;">
+                        <${MarketSparklineGrid} />
+                    </div>
+                    <div class="flex-1 min-h-0">
+                        <${Tabs}>
+                            <${Tab} label="Quotes">
+                                <div class="flex flex-col h-full min-h-0">
+                                    <${StreamingQuotes} />
+                                </div>
+                            </${Tab}>
+                            <${Tab} label="News">
+                                <div class="flex flex-col h-full min-h-0">
+                                    <div class="flex flex-row items-center gap-1 mb-1">
+                                        <input
+                                            type="text"
+                                            class="flex-1 px-2 py-0 text-xs"
+                                            placeholder="Search (comma-separate for OR, e.g. merger, IPO)"
+                                            data-testid="input-news-search"
+                                            value=${newsSearch}
+                                            onInput=${(e) => setNewsSearch(e.target.value)}
+                                        />
+                                        <${Button} class="btn text-xs px-2 py-0 ${showMyNews ? 'yellow' : ''}" data-testid="btn-my-news" onClick=${() => setShowMyNews(!showMyNews)} title="Filter to show only news about your stocks and companies">My News</button>
+                                    </div>
+                                    <div class="flex flex-col flex-1 overflow-y-auto min-h-0">
+                                        ${filteredHeadlines.map(h => html`
+                                            <div class="news-headline">
+                                                ${api.renderHyperlinks(h, ({ id, type }) => {
+                                                    if (type === 'C')  api.setViewAsset(id);
+                                                    else if (type === 'I') api.viewIndustry(id);
+                                                }, hyperlinkRegex)}
+                                            </div>
+                                        `)}
+                                    </div>
+                                </div>
+                            </${Tab}>
+                        </${Tabs}>
+                    </div>
+                </div>
+                ` : ''}
+
+                <div class="game-col-view flex flex-col gap-2 h-full" style="flex: 5 1 0%; min-width: 0;">
+                    ${html`<${View} />`}
+                </div>
+            </div>
+        </div>
+        <div class="panel-footer flex flex-row border items-center justify-between gap-2 mx-2" style="min-height: 25px; flex-shrink: 0;">
+            <div></div>
+            <div class="flex flex-[1] items-center gap-2 cursor-pointer justify-between" onClick=${() => setShowNotifications(true)}>
+                <div>${(trendingNews.length > 0 ? insertCurrencySymbols(trendingNews[0]) : "")}</div>
+                ${trendingNews.length > 0 ? html`<div class="notification flex mx-1 flex-row items-center justify-between" style="height: 100%;"
+                    onClick=${() => setShowNotifications(true)}>
+                    <div class="flex flex-row">
+                        <div class="mr-1" style="width: 15px"><${NotificationIcon} /></div>
+                        ${insertCurrencySymbols("Notifications")}
+                    </div>
+                    <!--<div class="badge">${trendingNews.length}</div>-->
+                </div>` : html`<div></div>`}
+            </div>
+        </div>
+        ${expandedNW && html`<${AdvancedChartModal}
+            assetId=${api.HUMAN1_ID}
+            chartTitle="Net Worth"
+            baseMultiplier=${nwBaseMultiplier}
+            forceLineOnly=${true}
+            onClose=${() => setExpandedNW(false)}
+        />`}
+        <${Modal} show=${showNotifications} onClose=${() => setShowNotifications(false)}>
+            <div class="flex justify-between items-center mb-4">
+                <div class="text-lg font-bold">Notifications</div>
+                <${Button} class="btn red" onClick=${() => setShowNotifications(false)}>Close</button>
+            </div>
+            <div class="flex flex-col gap-2 max-h-[60vh] overflow-y-auto">
+                ${trendingNews.map(h => html`
+                    <div class="p-2 border">
+                        ${api.renderHyperlinks(h, ({ id, type }) => {
+                            if (type === 'C')  api.setViewAsset(id);
+                            else if (type === 'I') api.viewIndustry(id);
+                            setShowNotifications(false);
+                        }, hyperlinkRegex)}
+                    </div>
+                `)}
+            </div>
+        <//>
+    </div>
+    `;
+};
+
+export default GameUI;

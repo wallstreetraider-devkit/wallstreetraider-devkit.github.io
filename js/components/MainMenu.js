@@ -1,0 +1,1034 @@
+import { html, useState, useEffect, useMemo } from '../lib/preact.standalone.module.js';
+import '../lib/tailwind.module.js';
+import * as api from '../api.js';
+import ChartBackground from './ChartBackground.js';
+import { renderMultilineText } from './helpers.js';
+import SettingsModal from './SettingsModal.js';
+import Modal from './Modal.js';
+import Button from './Button.js';
+import LocalizationDropdown from './LocalizationDropdown.js';
+import localeManager from '../locale/localeManager.js';
+
+// Read version from version.txt (single source of truth)
+let APP_VERSION = '10.0.16.4';
+try {
+    if (typeof require === 'undefined') throw new Error('no require');
+    const _fs = require('fs'), _path = require('path');
+    const vFile = _path.join(__dirname, 'version.txt');
+    APP_VERSION = _fs.readFileSync(vFile, 'utf8').trim();
+} catch (e) { /* fallback to hardcoded */ }
+
+const LOGO_SRC = 'assets/wallstreetraider_logo.png';
+const WEBSITE_URL = 'https://wallstreetraider.com';
+const REDDIT_URL = 'https://www.reddit.com/r/WallStreetRaider/';
+const DISCORD_URL = 'https://discord.com/invite/5ujV5Cp9Ej';
+const STEAM_URL = 'https://store.steampowered.com/app/3525620/Wall_Street_Raider/';
+
+// ── Lore snippets from the origin story ──
+const LORE_SNIPPETS = [
+    "In 1967, a Harvard Law student began filling notebooks with ideas for a board game simulating all of American capitalism. It took 16 years for personal computers to catch up with his vision.",
+    "A Disney game studio tried for over a year with a team in Armenia. Commodore mailed the source code back after three months. For 40 years, the code was indecipherable to anyone but its creator.",
+    'A hedge fund manager wrote: "I played Wall Street Raider for years and started doing what I\'d been doing in the game with my real clients." His Price Waterhouse audited 10-year return: 44% compounded annually.',
+    "At 3 AM, Jenkins would race to encode financial logic before understanding slipped away. The result: code that worked perfectly for decades, yet even he no longer fully comprehended.",
+    "Over 200 CEOs and investment bankers have credited Wall Street Raider with shaping their careers \u2014 from a teenager in the Philippines playing the free demo to a forex trader at Morgan Stanley in Shanghai.",
+    '115,000 lines of code written by forty distinct versions of Michael Jenkins, competing across four decades, governed by what one developer described as "laws written on top of laws that were interpreted wrong."',
+    "A player from the Philippines: \"I've been playing since I was 13, living in a third world country. Couldn't even afford the full version. I played the two-year demo for years. It taught me so much that now I'm working for Morgan Stanley.\"",
+    'In 1983, Jenkins sat at a Kaypro computer with a five-inch screen, typed 10 PRINT "HELLO", and realized: "This isn\'t that complicated." He stayed up until 5 AM writing code. Four decades later, he still hadn\'t stopped.',
+];
+
+// ── Changelog data ──
+const CHANGELOG = [
+    {
+        ver: "v10.0.16.4",
+        sections: [
+            {
+                heading: "Bug Fixes",
+                items: [
+                    "Fix Sell Loans, Buy Loans, and Freeze Loans buttons not actually acting on the viewed bank (regression introduced in 10.0.16.3). All ActionBar bank-loan actions now execute as the viewed entity",
+                    "Fix Buy/Sell Subprime Mortgages and Buy/Sell Prime Mortgages running as the player instead of the viewed insurance company. The same acting-as wrapper now covers Browse For Sale Items, Repay, Rebrand, Restructure, Merger, Startup, Redeem Bonds, Capital Contribution, and Sell Subsidiary Stock",
+                    "Fix unable to start a new game when leftover modal text from prior dropdowns blocked the startup-choices dialog from closing on cancel",
+                    "Fix Sell Assets to a related corporation triggering a bogus \"can't buy from itself\" error after selecting the buyer (PlayCo was not being swapped to the target before the asset-buy call)",
+                    "Fix extra \"WHO IS THE BUYER\" popup when buying or selling stock as an ETF you advise. The transaction now goes through the ETF directly instead of asking again. Same fix applied to ETF bond issuance, bond buybacks, and ETF call/put trades",
+                    "Fix Cannot Act As the Advisor for an ETF. The eligibility check now flows through the Advisor corporation for ETFs (which have no direct controlling owner)",
+                    "Fix Holdings Tab showing wrong yield for Government Bonds, corporate bonds, and convertibles. Per-issuer YTM is now persisted and bridged for the holdings table",
+                    "Fix Error when Searching for Business Loans (List Bank Loans report). The report now also shows which loans are to entities controlled by you (_P), by another player (_H, with player number), or by another corporation (_C), with a legend below the list",
+                    "Fix \"Cannot sell calls/puts on this entity, please select a corporation as the underlying\" message firing when closing or covering existing option positions (also affected restricted/vested-only executive options). The over-broad guard on the option bridge handlers was removed so the engine's own restriction message fires instead",
+                    "Fix Delete Price Alert silently destroying alerts on accidental click. A Yes/No confirmation dialog now shows the alert details (entity, direction, price) before deletion",
+                    "Fix Unicode in the select-currency menu (cherry-picked from the 10.0.17.1 branch)",
+                ],
+            },
+            {
+                heading: "New Features",
+                items: [
+                    "Contextual help system. A lightbulb icon at the top of the screen and on every modal brightens whenever a tip is available for what you're looking at. Click it for a short plain-English explanation of the screen and what you can do from it",
+                    "Every tip has an Open Help button that pops the in-game manual in a new window at the relevant section",
+                    "Tips authored for the Player view (Overview, Financials, Advances, Holdings, My Corporations), the Company view in both controlled and scouting modes (Overview, Financials, Loans, Holdings, Shareholders, with separate copy for ETFs and private companies), the Market view (Heat Map, Industry Growth Rates, Economic Data, Interest Rates, Companies With Most..., Who Owns What?, Who's Ahead?), the Industry drilldown (Summary, Projection / Fund Strategies, Heat Map), and the Database Search screen, on top of the existing modal-dialog tip catalog",
+                    "First-launch pointer to the new lightbulb so new players know where to look for help",
+                ],
+            },
+            {
+                heading: "UI/UX Improvements",
+                items: [
+                    "Old linear tutorial retired. Help is now click-driven: a brightened lightbulb means a tip exists for what's on screen; a dim lightbulb means no tip is authored for that surface yet",
+                    "Settings: Tooltips on/off switch removed (no longer needed, since hints now wait for your click)",
+                    "New Game: Enable interactive tutorial checkbox removed (no longer applies)",
+                    "Holdings table: the Show Subsidiary Holdings toggle is now explained in its tip. ON rolls subsidiary positions into the consolidated view; OFF strips back to direct holdings only",
+                    "Main menu lag fixed by archiving 30+ MP4 background videos and replacing them with a lightweight animated background",
+                ],
+            },
+            {
+                heading: "Gameplay Tuning",
+                items: [
+                    "Advisor recommendations now stay consistent through the week. Previously the prose flickered between alternative wordings on every refresh (multiple times per in-game day); a new week-deterministic seed keeps the wording stable until the week boundary rolls over",
+                ],
+            },
+            {
+                heading: "Performance & Infrastructure",
+                items: [
+                    "log.txt size capped at 1MB with rotation to log.txt.1 (was growing without bound). The file now records errors and warnings only; routine info-level messages are no longer disk-logged",
+                ],
+            },
+        ],
+    },
+    {
+        ver: "v10.0.16.3",
+        sections: [
+            {
+                heading: "Bug Fixes",
+                items: [
+                    "Fix backend crash on saved games containing non-ASCII currency or name characters (£, ¥, €, é, etc.) that caused non-US locales to silently exit on load",
+                    "Fix being unable to close or cover existing option positions (long calls, short calls, long puts, short puts). The underlying-validity guard added in 10.0.16.2 was incorrectly tripping on close/cover actions",
+                    "Fix expiration announcements for commodity, crypto, interest-rate, stock-index, and GDP-rate alerts. Previously only stock alerts announced when they expired",
+                    "Fix Notional value entry on the Interest-Rate Swaps screen reading the wrong text field",
+                    "Fix Government Bond holdings sometimes mislabeled as SHORT in the portfolio table",
+                ],
+            },
+            {
+                heading: "UI/UX Improvements",
+                items: [
+                    "Portfolio holdings now respect the active locale's currency symbol (£, ¥, €, etc.) instead of always showing $",
+                    "Player Financials \"Commodities\" cell now shows mark-to-market and physical commodity value combined into a single total",
+                ],
+            },
+            {
+                heading: "Performance & Infrastructure",
+                items: [
+                    "Wall Street Raider now reliably shuts down with the game window. No more orphan game processes that could block your next launch (kernel-enforced lifetime binding replaces the previous taskkill exit path)",
+                ],
+            },
+        ],
+    },
+    {
+        ver: "v10.0.16.2",
+        sections: [
+            {
+                heading: "Bug Fixes",
+                items: [
+                    "Fix shorts/covers acting-as routing",
+                    "Fix buy/sell stock index futures",
+                    "Fix entity drill-down surfacing subsidiaries of corps the player only partially owned",
+                    "Fix CorpInfoItems zero error",
+                ]
+            },
+            {
+                heading: "UI/UX Improvements",
+                items: [
+                    "Hide Short Stock on the ActionBar when acting as a corporation",
+                    "Clear button on the company select dialog",
+                ]
+            },
+            {
+                heading: "Performance & Infrastructure",
+                items: [
+                    "Exit workflow `taskkill /F /IM wsr.exe` flagged by Nortan SONAR, replace with libuv TerminateProcess via wsrProcess.kill / process.kill(pid)",
+                ]
+            },
+        ]
+    },
+    {
+        ver: "v10.0.16.1",
+        sections: [
+            {
+                heading: "Bug Fixes",
+                items: [
+                    "Fix \"Error number 0 (Unspecified error)\" modal cascade after a 1% buy — close the PlayCo=0 race in the transaction dispatcher so BUYER never lands on entity 0",
+                    "Fix Trade dropdown's Buy/Sell Calls and Buy/Sell Puts erroring on the picked company (\"Invalid options contract number specified\") — defer the underlying picker to PB so the id arrives as TGT, not ContractNum",
+                    "Fix Cash Projection column blank for bank entities — bank cashflow now feeds the same /gamestate field as non-banks via the new pure Calc_CashFlowBankProj",
+                    "Fix Swap rate sign on portfolio holdings to match the PB engine convention",
+                    "Fix Save-As with no filename writing an empty filename — now opens the prompt and preserves the existing filename on cancel",
+                    "Fix loading-state UI flicker — Load / New / Save / Exit flush isLoading=1 to the renderer before the slow PB call blocks",
+                ]
+            },
+            {
+                heading: "New Features",
+                items: [
+                    "CLI: CALL / PUT / SELLCALL / SELLPUT take a company symbol (e.g. \"CALL ABC\") and trade options on that underlying without a separate picker prompt",
+                    "Per-machine UI prefs (chart type, locale) persist to CFIG.WSR via new /set_chart_type and /set_locale endpoints — survive restart",
+                ]
+            },
+            {
+                heading: "UI/UX Improvements",
+                items: [
+                    "ActionBar target/commodity pickers route through PB-blocking modals — game ticks can no longer race with user input during a picker, closing the bug-01 PlayCo=0 window for buy_stock, buy_corp_bond, M&A targets, hostile actions, and commodity opens",
+                    "Commodity picker scoping: PB publishes a modalFilter (\"crypto\" / \"phys\" / \"noncrypto\") so each per-button context shows the right subset",
+                    "Holdings table hides per-row actions when the holder is not the player or a player-controlled entity",
+                    "MarketSparklineGrid actions disabled when not viewing self or a controlled entity",
+                ]
+            },
+            {
+                heading: "Performance & Infrastructure",
+                items: [
+                    "OS-assigned REST/WS ports via runtime.json handshake — replaces hardcoded 9631/9632, which Windows winnat / Hyper-V / Docker port reservations were silently swallowing on some customer machines. Main process polls %LOCALAPPDATA%\\Wall Street Raider\\runtime.json and pushes the ports to the renderer; remote browsers read them from ?restPort=&wsPort= URL params",
+                    "New game events SET_CHART_TYPE (4200) and SET_LOCALE (4201); new gameState fields chartType and locale",
+                ]
+            },
+        ]
+    },
+    {
+        ver: "v10.0.16",
+        sections: [
+            {
+                heading: "New Features",
+                items: [
+                    "Advanced Chart subscreen \u2014 candle / OHLC / line modes with Bollinger Bands, MACD, RSI, and synthetic volume overlays",
+                    "Market Sparkline Grid on Quick Look \u2014 grid of mini charts for stocks, bonds, rates, and commodities with inline Buy/Sell action buttons",
+                    "Unified Portfolio Holdings table \u2014 single tab replaces per-instrument drill-downs with multi-select filters, a Cash Projection column, and swap rate/profit display",
+                    "Player Overview tab \u2014 live capital gains, quarterly cashflow, and borrower status matching the corporate view",
+                    "Financials tab redesign \u2014 full asset/liability breakdown with 13 newly bridged fields (T-Bills, commodity margin, prepaid tax, cap gain/loss) and single-click hyperlines",
+                    "Quick Look Net Worth sparkline expands into the Advanced Chart modal on click",
+                    "Buy/Sell toolbar on every Advanced Chart \u2014 trade directly from the chart view",
+                    "Invest dropdown on ActionBar \u2014 grouped Stocks / Bonds / Options shortcuts",
+                    "Nice-number chart axes \u2014 Y-axis labels snap to round values, X-axis labels anchor to calendar-month boundaries at adaptive density",
+                    "Company Research panel on Industry and Company views",
+                    "SubScreen wrapper standardises drill-down views with back navigation",
+                ]
+            },
+            {
+                heading: "UI/UX Improvements",
+                items: [
+                    "Acting-As invariant \u2014 every ActionBar action (management, deals, lender services, legal, banking, accounting) now threads the acting-as entity through the C++ bridge; the PromptActingAsIfZero fallback is gone",
+                    "ActionBar hides corporation-only actions (Merger, ETF Advisory, Public Stock Offering, Corp Bond Issue/Redeem) when viewing the human player, matching PB's PlayCo<11 guards",
+                    "Legacy instrument tabs being sunset \u2014 Commodities & Crypto tab removed from Industrial view; trading now routes through ActionBar or the Market Sparkline Grid, review via the unified Holdings tab",
+                    "PlayerView Borrower Status and Quarterly Cashflow panels restyled to match the corporate view",
+                    "PlayerView Financials action buttons removed \u2014 ActionBar now owns them",
+                    "LoansTab hides its extras bar when the player doesn't control the bank entity",
+                    "OwnershipGraph is now responsive via SVG viewBox",
+                    "Year-1 \"HOW TO USE THIS MENU\" instructional preamble suppressed in PB menus \u2014 redundant with modern UI affordances",
+                    "Market Indicator chart modal now includes position-creation buttons",
+                    "Centralised panel styling via panelStyles.js",
+                    "Hotkey system retired for now \u2014 bindings, chord bindings, and the Keybinds modal removed pending a redesign",
+                ]
+            },
+            {
+                heading: "Bug Fixes",
+                items: [
+                    "Fix Merger / Greenmail / LBO target picker not wiring targetId through to the bridge",
+                    "Fix sell_subsidiary_stock missing target corp ID routing",
+                    "Fix Options sell crash and Futures show-all-contracts bug",
+                    "Fix Holdings tab subsidiary-holding drill-down",
+                    "Fix OwnershipGraph retaining the stale entity after navigation",
+                    "Fix 3-Month Cash Projection showing wrong sign and color for negative balances",
+                    "Fix Swap quarterly profit calculation; add currentRate / swapPnl fields to swap holdings",
+                    "Fix Crypto shorting via futures \u2014 BTC/ETH no longer excluded from the Short Futures button",
+                    "Fix DatabaseSearch deadlock on results fetch; add 11 missing db-search fields to the Company struct",
+                    "Fix Capital Contribution button incorrectly enabled",
+                    "Fix chart throttle and ipcRenderer guards for non-Electron browser access",
+                    "Fix Commodity PnL and market value calculation",
+                    "Fix SwapTypeSelect default in CASE 720",
+                    "Fix calc_cashflow.inc LF-only line endings causing PB error 407",
+                    "Fix hyperlink regex lastIndex not resetting between renderHyperlinks runs",
+                    "Fix UI_PLAYER_CORPORATIONS_LIST refresh so controlled-company lines emit @C#### hyperlink tokens",
+                ]
+            },
+            {
+                heading: "Performance & Infrastructure",
+                items: [
+                    "WebSocket game-state sync with JSON-patch \u2014 replaces REST polling for most updates and eliminates the DatabaseSearch fetch deadlock",
+                    "PB persprofile refactor Waves 1\u20134 \u2014 extract pure Calc_IndivTax, Calc_OtherTaxes, Calc_PlrDivIncome, Calc_PlrGovBondAnnualInterest, Calc_PlrJunkBondProjection, Calc_PlrCeoSalaryBonus",
+                    "PB unit-test harness resurrected with 43 Calc_* tax tests",
+                    "activeEntityPlayerFinancials JSON bridge (Phase 1 Layer A\u2013D) surfaces player scalars to Electron",
+                    "Monthly high/low arrays exposed via /asset_chart for candle and OHLC rendering",
+                    "Batch cash projection arrays (DbEstCashIn3Mo, DbCfAfterDebt) bridged for Cash Proj columns",
+                    "GROWTH_THROTTLE event (1100) wired through GameEvent.h and GameServer.h",
+                    "Swap/RestoreActingAs event-code ranges consolidated into a single authoritative list in ui.inc",
+                    "src/ui/ui/Release intermediate build artifacts added to .gitignore",
+                    "Browser-compatible api.js \u2014 stubs ipcRenderer so the UI can run over plain HTTP for phone access",
+                ]
+            },
+        ]
+    },
+    {
+        ver: "v10.0.15",
+        sections: [
+            {
+                heading: "New Features",
+                items: [
+                    "Price Alerts \u2014 set high/low thresholds on any stock, commodity, or rate; alerts fire as toast notifications and persist across sessions",
+                    "Clear Chart History \u2014 button on company view to wipe price chart data for the current entity",
+                    "Company Target Picker \u2014 Merger, Greenmail, LBO, Lawsuits, and Spread Rumors now open a searchable company selector instead of acting on the viewed entity",
+                    "Acting-As Picker \u2014 trade actions on non-controlled companies prompt \"Who is performing this action?\" with player and controlled company choices",
+                    "Interactive Tutorial system \u2014 guided walkthrough tooltips for new players",
+                    "My News filter in Business/World News \u2014 toggle to show only headlines affecting your controlled companies",
+                    "Who Owns filter \u2014 filter shareholders list by sector, entity type, or ownership percentage",
+                    "Expandable full-screen charts \u2014 click expand icon on any price chart for a larger view",
+                    "Streaming Quotes toolbar: Fill, Clear, and Alerts buttons in panel header",
+                    "About dialog with version info, credits, and links accessible from main menu",
+                    "Scoreboard button in toolbar for quick access to player rankings",
+                    "Growth Throttle control in Settings \u2014 adjust economic growth speed",
+                    "Become ETF Advisor action for eligible player entities",
+                    "Auto-Add to Streaming Quotes option \u2014 automatically adds viewed companies to ticker",
+                    "Database Search remembers last query and auto-saves results between sessions",
+                    "Bond Yield-to-Maturity column in portfolio bond listings",
+                    "Last Entity / Last Industry quick-nav buttons in navigation panel",
+                ]
+            },
+            {
+                heading: "UI/UX Improvements",
+                items: [
+                    "ActionBar restructured \u2014 streamlined to Corporate and Hostile dropdowns; entity label shows what you're viewing",
+                    "Hotkey labels always visible \u2014 tab letters, button numbers, and navigation badges no longer hidden behind Shift",
+                    "Reduced Shift+letter conflicts \u2014 only Shift+C (Corporate) and Shift+H (Hostile) remain, freeing capital letters for typing",
+                    "Elect as CEO moved from button bar to Corporate dropdown to reduce button wrapping",
+                    "Responsive toolbar layout \u2014 toolbar items wrap cleanly at smaller window sizes",
+                    "Navigation panel redesigned: history managed server-side, back/forward no longer causes UI freezes",
+                    "Chart rendering improvements: better axis labels, tooltip formatting, and color consistency",
+                    "Currency denomination support throughout all financial displays and reports",
+                    "Improved modal sizing and positioning for text-heavy dialogs",
+                    "Streaming Quotes panel: duplicate ticker prevention, better add/remove flow",
+                    "Portfolio view column alignment and number formatting improvements",
+                    "Settings panel reorganized with clearer section grouping",
+                    "Close button added to Price Alerts modal",
+                ]
+            },
+            {
+                heading: "Bug Fixes",
+                items: [
+                    "Fix Merger not working \u2014 reworked to use target company picker with proper entity switching in PB bridge",
+                    "Fix Harassing Lawsuit not working \u2014 now uses target picker instead of acting on viewed entity",
+                    "Fix Spread Rumors not working \u2014 now uses target picker instead of acting on viewed entity",
+                    "Fix Antitrust and other lawsuit buttons not functioning under Hostile dropdown",
+                    "Fix Merger \"can't merge with itself\" error \u2014 target picker filters out controlled companies",
+                    "Fix \"must be acting as this company\" merger error \u2014 PB bridge now saves/restores ActvEntyNum",
+                    "Fix Greenmail & LBO incorrectly clickable when acting as Player \u2014 now properly disabled",
+                    "Fix Browse for Sale Items missing on Player Cashflow tab",
+                    "Fix hotkey 0 not triggering 10th button (e.g., Restructure)",
+                    "Fix single-letter stock symbols incorrectly triggering hyperlink detection in news text",
+                    "Fix industry alias names not hyperlinking correctly in news headlines",
+                    "Fix Acting As entity not tracking correctly after navigation changes",
+                    "Fix excessive re-renders during game state polling causing UI lag",
+                    "Fix Advanced Options calculator entering infinite loop on certain strike prices",
+                    "Fix clicking outside modal unintentionally dismissing important dialogs",
+                    "Fix Options tab incorrectly restricted for ETF entities",
+                    "Fix commodity and crypto trade flows failing when asset id was 0",
+                    "Fix ETF company selection modal using legacy Win32 dialog instead of Electron dropdown",
+                    "Fix short sale guard condition checking wrong variable in PB bridge",
+                    "Fix save directory defaulting to install path instead of user documents",
+                    "Fix database search results capped at 200 rows",
+                ]
+            },
+            {
+                heading: "Performance & Infrastructure",
+                items: [
+                    "Adaptive polling \u2014 200ms on main menu, 50ms during gameplay; eliminates per-poll console spam",
+                    "Debug logger system for structured diagnostic output without console noise",
+                    "IPC mode foundation for future native Electron\u2013engine communication",
+                    "hasPublicShares field added to game state for accurate public offering eligibility checks",
+                ]
+            },
+        ]
+    },
+    {
+        ver: "v10.0.14.1",
+        sections: [
+            {
+                heading: "New Features",
+                items: [
+                    "Disable Hotkeys toggle in Settings \u2192 Keyboard Shortcuts panel",
+                    "Portfolio lines are now clickable \u2014 stock and bond rows link to the issuing company without needing explicit hyperlink markers",
+                    "Command prompt resolves single-token symbols directly (e.g., type \"AAPL\" to navigate)",
+                ]
+            },
+            {
+                heading: "UI/UX Improvements",
+                items: [
+                    "Swapped Acting As and Viewing rows \u2014 Acting As is now the top row for quicker access",
+                    "Text report modals (e.g., Research Report) now use fixed-width pre-formatted layout with horizontal scroll instead of wrapping",
+                    "Consistent line-number gutter alignment in selectable portfolio and report views",
+                    "Removed pulsing border animation on disabled action buttons",
+                ]
+            },
+            {
+                heading: "Performance & Fixes",
+                items: [
+                    "Stock ticker scrolling now updates DOM directly instead of re-rendering at 50fps",
+                    "Spark chart cache bounded to 200 entries to prevent unbounded memory growth",
+                    "Fixed useGameStore re-subscribing on every render when using custom selectors",
+                    "Cash flow projection content now aligns to top instead of centering vertically",
+                ]
+            },
+        ]
+    },
+    {
+        ver: "v10.0.14",
+        sections: [
+            {
+                heading: "New Features",
+                items: [
+                    "Keyboard hotkey system with 73 bindings \u2014 hold Shift to see shortcuts on buttons, tabs, and menus. Reference panel in Settings",
+                    "Line selection: use number keys to select lines in portfolio views, then letter keys for inline actions (S=Sell, E=Exercise, etc.)",
+                    "Cheat Menu accessible from toolbar (Disable Lawsuits, Insider Info, Add/Subtract Cash) \u2014 auto-enables Unethical Scenarios",
+                    "Migrate Bank Allocation, Advance Funds, Greenmail, and Planned Tender Offer Premium from Win32 to Electron",
+                    "Picture event popups (Black Swan, Ponzi, etc.) now rendered natively instead of launching external PIX.EXE",
+                    "Delete saves from Load Game menu, load specific save files by name",
+                    "Expanded command prompt with 70+ commands and improved autocomplete",
+                    "Smart stock ticker with hover-to-pause",
+                ]
+            },
+            {
+                heading: "Gameplay & AI Fixes",
+                items: [
+                    "AI companies now liquidate T-Bills before borrowing on line of credit",
+                    "Fixed Advanced Options validation allowing free options trading via blank/zero strike prices",
+                    "Improved options premium messaging \u2014 distinguishes net-credit trades from pure buys/sells",
+                    "Interest rate swap expiration date selection now uses dropdowns with all valid expirations",
+                    "Confirmation dialog when selling business loans",
+                    "Cash flow projections show inline message instead of blocking popup when unavailable",
+                ]
+            },
+            {
+                heading: "UI/UX Improvements",
+                items: [
+                    "Disabled \"Must be acting as...\" buttons now switch Acting Entity when clicked",
+                    "Action bar reorganized into Trade (3-col), Corporate, Finance, Hostile, and Banking menus",
+                    "Unified navigation panel with back/forward history, Ctrl+J/K to cycle Acting Entity",
+                    "Asset price charts optimized with hover crosshair showing date and price",
+                    "Currency symbols throughout UI now match selected currency instead of hardcoded USD",
+                    "New game modal remembers last used settings; ticker speed saved to config",
+                    "Standardized font sizes with CSS variables, toolbar wraps at higher zoom levels",
+                    "Modals: Enter submits/closes, auto-focus input, scroll fix, tutorial tooltip overlap fix",
+                    "Added Redeem button next to Bonds Due in Financials tab",
+                    "Unethical Scenarios togglable in Settings; updated legacy Win32 menu references",
+                    "Improved error popup with stack trace for better bug reporting",
+                ]
+            },
+            {
+                heading: "Bug Fixes",
+                items: [
+                    "Fix navigation history arrows freezing game",
+                    "Fix startup choices cancel button not working",
+                    "Fix Sell Physical/Sell Crypto showing wrong error when player owns physical commodities",
+                    "Fix Buy/Sell commodity and crypto flows when no specific asset is pre-selected",
+                    "Fix individual autopilot toggle buttons under My Corporations tab",
+                    "Fix Business/World News text insert codes, info modal line breaks",
+                    "Fix textboxes and graphs rendering on top of settings menu",
+                    "Fix notifications bar and market reports scrolling issues",
+                    "Fix large cash amounts overflowing 32-bit integers",
+                    "Fix game exit/restart lifecycle \u2014 game process stays alive for clean restart",
+                    "Fixed database search tool analyst rating was reversed"
+                ]
+            },
+        ]
+    },
+    {
+        ver: "v10.0.13",
+        items: [
+            "Fix Info modal content not scrolling when too tall",
+            "Hide tabs and buttons if active entity is in industry which does not support them",
+            "Text/Graph toggle button in Shareholders and My Corporations tab",
+            "Advanced Options auto-trade expiration year/month selection is now dropdown of all available expirations",
+            "Fix Advanced Options auto-trade setting target as acting company when target was chosen via company select modal",
+            "Fix blank options price box in Advanced Options due to white text white background",
+            "Symmetrized auto-trade strikes around ATM, narrowed strangles from 23% to 10% OTM for realism, added Bull Put and Bear Put spreads, removed call-only butterfly/condor strategies",
+            "Overhauled option pricing model: removed excessive discounts that made puts ~38% underpriced, credit strategies like Iron Butterfly now have realistic risk/reward",
+            "Option premiums now adjust based on industry volatility (tech/biotech higher, utilities/packaged foods lower)",
+            "Fixed P/L chart calculations for multi-leg options - chart now correctly shows profit/loss at all stock prices",
+            "Optimize charts and text reports, remove update throttling"
+        ]
+    },
+    {
+        ver: "v10.0.12",
+        items: [
+            "Can now start game with more than 1 computer player and rename them like normal",
+            "Can create new company again",
+            "Navigation history saving now",
+            "Inline text report buttons (sell, cover, etc. contracts) working again",
+            "Fix crash when buying a fourth corporate loan as a bank",
+            "Fix Call In loan button logic being inverted (now correctly enabled for BB or worse)",
+            "Fix news event popups showing stale data (e.g. Bitcoin options instead of actual event)",
+            "Fix scenario event placeholders not being replaced (e.g. @AMOUNT showing instead of dollar value)",
+            "Re-organize style sheets and simplify CSS classes, restore button colors",
+            "Improve visual accessibility eg. add drop shadow to all text to make it pop, lighten panel background color",
+            "Fix startup selecting country other than United States for incorporation",
+            "Fix hide tutorial bugging out ticker start/stop",
+            "Fix asset price charts show zero in first month of game",
+            "Optimize asset price chart data fetching and rendering to be real-time",
+            "Remove single-letter translation keys to eliminate confusion",
+            "Overhaul ETF view by fixing buttons and adding 'Act As Investment Advisor' functionality",
+            "Ability to buy stocks and options of a company without it being the active entity (helpful for ETFs especially)",
+            "Migrate Change Bank from Win32 to Electron",
+            "When viewing the company you are acting as, the Buy/Sell/Short buttons in General tab now buy on behalf of that company prompt for company selection with advanced search similar to Command Prompt",
+            "Restore window minimize/maximize/close buttons on main window",
+            "Fix swaps tab incorrectly showing Acting Entity swaps instead of active entity swaps",
+            "Fix paragraph separation in text reports and info modals",
+            "Replace SWAP INFO button with tooltip",
+            "Widen info modals to better fit long lines at higher zoom levels",
+            "Fix filter lag in Database Search tool and fix Price-to-Book filter and column",
+            "Fix navigation history quirks",
+            "Add action bar with submenus for all top-level buttons",
+            "New Shareholder Graph can be toggled back to old text report in Settings menu",
+        ]
+    },
+    {
+        ver: "v10.0.11",
+        items: [
+            "Overhaul GUI look and feel with modern styles and improved usability",
+            "Submit string input modals with Enter key",
+            "Savescumming support (advanced game saving/loading, custom save names, fix exit game)",
+            "Fix loan tab softlocking due to syntax error",
+            "Major command prompt improvements including autocomplete preview and help text",
+            "Market heat maps for companies and sectors",
+            "Include industry and market reports pages in navigation history",
+            "Changed time-of-day to progress bar to eliminate confusion",
+            "Migrate Interest Rate Swaps from Win32 to Electron",
+            "Interest Rate Swaps tab for viewing and managing swaps",
+            "Fix Earnings popups w/ menu setting",
+            "Migrate Advanced Options from Win32 to Electron",
+            "Migrate Picklist from Win32 to Electron",
+            "Migrate Database Search from Win32 to Electron",
+            "Restore and migrate Settings menu to Electron",
+            "Migrate Change Law Firm from Win32 to Electron",
+            "Migrate Spread Rumors from Win32 to Electron",
+            "Migrate Harassing Lawsuit from Win32 to Electron",
+            "Migrate Capital Contributions from Win32 to Electron",
+            "CustomData API endpoint for mods to store custom game data",
+            "Localization support framework",
+            "Add Microsoft Visual C++ to Steam Common Redistributables installation list",
+            "Migrated Strategy Manual to Help menu",
+            "Display settings modal with zoom controls",
+            "Fix Unethical Scenarios functionality",
+            "Fix player cashflow projection",
+            "Modulate interest rates to be more realistic",
+            "Tutorial system",
+            "Solved Network IO suspended reconnect after computer sleep",
+            "Ownership graphs",
+        ]
+    },
+    {
+        ver: "v10.0.10",
+        items: [
+            "Fix logger",
+            "Ask to save game when clicking Exit Game",
+            "Fix cashflow warning 'Would you like to view PoorCo cashflow projection now?' now opens cashflow projection of PoorCo",
+            "Remove CPU priority boosting for frontend and backend now that IPC is implemented",
+            "Only refresh reports that are visible to improve performance",
+            "Migrate financial news update popup to Electron dialog",
+            "In-game time is actual time of day in game based on market open hours",
+            "Implement Zustand for state management to improve performance and reduce complexity",
+            "Optimized hyperlink matching by only building regex once",
+            "Allow player to specify exact ticker speed from 1-100",
+        ]
+    },
+    {
+        ver: "v10.0.9",
+        items: [
+            "Add Exit Game button",
+            "Fix create new game with non-USD currency causing crash",
+            "Fix change company name/symbol/country causing crash",
+            "Complete rewrite of options handling to fix numerous bugs including sell/cover/exercise buttons, company hyperlinks, and incorrect option pricing",
+            "Add back in tax basis column to Stocks & Bonds portfolio tab",
+            "Clean up unintended hyperlink matches in text reports"
+        ]
+    },
+    {
+        ver: "v10.0.8",
+        items: [
+            "Fix scrolling issues on multiple tabs to to incorrect flex and centering styles.",
+            "Fix cancel button on string input modal which fixes multiple issues e.g. cancel set growth rate.",
+            "Fix new game character name mixup",
+            "Fix change symbol input error due to null terminator handling.",
+            "Fix save game loading animation",
+            "Fix options contract company hyperlink and sell/cover/exercise buttons",
+            "Fix market reports load industry tabs loading animation",
+            "Fix market reports update lag",
+            "Clicking on industry in market reports now automatically changes to industry tab",
+            "Add 'Browse For Sale Items' button to Cashflow tab in Player View",
+            "Fix ETF and Holding Co. industry summaries and hide projections for banking, insurance, holding co., and etf industries",
+            "Add company symbol to Acting As and Navigation Control dropdowns",
+            "Fix Spin-Off button showing next to bonds contracts",
+            "Fix crashing on Startup Choices popup",
+            "Fix advance ticker once when user interacts with the UI",
+            "Fix start/stop ticker lag",
+            "Attempt to improve user interaction responsiveness when ticker is running by optimizing ticker advance logic",
+        ]
+    },
+    {
+        ver: "v10.0.7",
+        items: [
+            "Resolved sporadic loading animation behavior by optimizing in-progress simulation processes to prevent it from getting stuck.",
+            "Addressed crashes caused by British pounds and Japanese yen currency handling.",
+            "Increased the size of 'Acting As' buttons for improved accessibility.",
+            "Fixed navigation issues with forward, backward, and 'View Player' buttons.",
+            "Resolved a modalResult dereferencing issue related to strParam1.",
+            "Removed the Cancel button from dialogs originally designed for Yes/No responses to prevent backend logic conflicts.",
+            "Replaced legacy Win32 popups with modern dialogs for creating new games.",
+            "Fixed a bug causing a two-year game limit regardless of startup choices for game length.",
+            "Resolved Error 9 and incorrect value sharing between C++ and PowerBasic by ensuring proper memory handling for user input events.",
+            "Addressed a UI update issue that occasionally caused crashes.",
+            "Improved market report throttling to ensure reasonable refresh rates during ticker activity.",
+            "Optimized advisory updates by implementing throttling.",
+            "Adjusted the initial ticker speed to be more gradual."
+        ]
+    },
+    {
+        ver: "v10.0.6",
+        items: [
+            "Resolved an issue causing an endless loop of humorous 'Game Over' text.",
+            "Removed the Steam overlay from the Electron build to address launch-related issues.",
+            "Fixed sporadic behavior of the loading animation and ensured it no longer gets stuck."
+        ],
+    },
+    {
+        ver: "v10.0.5",
+        items: [
+            "Resolved scrolling issues in the Financials tab.",
+            "Replaced 'Prepay Taxes' and 'Startup' buttons in the Player View for improved clarity.",
+            "Enhanced responsiveness of the Play/Pause button by toggling tick mode outside the update loop.",
+            "Fixed an issue where the loading screen occasionally remained visible after the program resumed.",
+            "Removed outdated UI navigation instructions when posting offers.",
+            "Corrected functionality of the 'Interest Rate Swaps' button for companies.",
+            "Updated error message to 'Must be acting as this company' to avoid truncation.",
+            "Fixed missing 'CFIG.WSR' causing default computer player names to break.",
+            "Revised old sample text referencing outdated UI at the start of a new game.",
+            "Implemented decryption for save files.",
+            "Changed save game location to '%LOCALAPPDATA%\\Wall Street Raider\\Saves'.",
+            "Optimized market report tab updates by staggering them."
+        ],
+    },
+    {
+        ver: "v10.0.4",
+        items: [
+            "Improve responsiveness of play, pause, and speed control buttons.",
+            "Ensure margin account report does not display negative numbers; cap values at zero.",
+            "Resolve excessive whitespace caused by multiple newlines in information popups.",
+            "Migrate '# of computers' and currency configuration popups to Electron dialogs.",
+            "Fix 'must control company' error when attempting to create a startup.",
+            "Resolve issues with the Set Dividend button functionality.",
+            "Fix disappearing Stock and Options buttons in the company profile when zooming in.",
+            "Simplify Streaming Quotes interface by adding Star and Trashcan icons with descriptions, removing the active entity from the top of the quotes list to reduce confusion, and adding a dedicated button to manage quotes.",
+            "Introduce a 'View Items for Sale' button."
+        ],
+    },
+    {
+        ver: "v10.0.3",
+        items: [
+            "Speed up ticker as much as I can",
+            "Add Prime Rate and GDP graphs",
+            "\u201CComplex options strategies on low-priced stocks\u201D has lots of whitespace for some reason",
+            "Spacebar as pause/unpause",
+            "Simplify info popup to have green OK button instead of red Close button at top right",
+            "Fix acting as dropdown and view player buttons not showing when viewing market reports"
+        ],
+    },
+    {
+        ver: "v10.0.2",
+        items: [
+            "Fixed capital contribute button",
+            "Fixed lagging game speed due to too many text report updates",
+        ],
+    },
+    {
+        ver: "v10.0.1",
+        items: [
+            "Dialogs now appear in front by replacing legacy Win32 dialogs with Electron dialogs.",
+            "Investigated CALC button issue; could not reproduce. May have been a symptom of Error 9.",
+            "Options list now correctly displays 'You have no options' when empty (intended behavior).",
+            "Navigation clarified: use the Financials tab to switch from Options view. To view Player or Company financials, select the entity under 'Acting As:' and then press the appropriate View button.",
+            "Migrated QuikMesg to Electron.",
+            "Replaced UpdateUI logic in Ui.cpp to resolve 'resource deadlock would occur' error with a deadlock-safe broadcast_state_change().",
+            "Fixed issue where ActiveEntity changes sometimes failed to apply (infinite loop).",
+            "Deadlock fixes in broadcast_state_change() resolved freezing and unresponsive states, ticker start/stop failures, and hyperlink issues. Likely also fixed game-stopping behavior on July 1.",
+            "Fixed Error 9 caused by GameEvent stack memory leak. Tested on actions like Exercise Early and Buy Calls.",
+            "Migrated all MSGBOX and QuikMesg calls to Electron modals.",
+            "Added branded loading GIF icon.",
+            "Expanded and improved main menu video background with additional clips."
+        ]
+    }
+];
+
+// ── Inline SVG icons for social links ──
+const RedditIcon = () => html`<svg viewBox="0 0 24 24"><path d="M12 0C5.373 0 0 5.373 0 12c0 3.314 1.343 6.314 3.515 8.485l-2.286 2.286C.775 23.225 1.097 24 1.768 24H12c6.627 0 12-5.373 12-12S18.627 0 12 0zm6.67 13.95c-.165 1.098-1.01 1.985-2.108 2.149-1.098.165-2.168-.353-2.706-1.227-.538-.873-.455-2.01.206-2.798.66-.787 1.748-1.073 2.746-.72.998.353 1.694 1.263 1.762 2.296.033.1.05.2.05.3h.05zm-12.34 0c.165 1.098 1.01 1.985 2.108 2.149 1.098.165 2.168-.353 2.706-1.227.538-.873.455-2.01-.206-2.798-.66-.787-1.748-1.073-2.746-.72-.998.353-1.694 1.263-1.762 2.296-.033.1-.05.2-.05.3h-.05zm10.92 3.55c-.66.66-2.04 1.5-5.25 1.5s-4.59-.84-5.25-1.5c-.22-.22-.22-.58 0-.8.22-.22.58-.22.8 0 .44.44 1.68 1.17 4.45 1.17s4.01-.73 4.45-1.17c.22-.22.58-.22.8 0 .22.22.22.58 0 .8zM17.5 10c-.83 0-1.5-.67-1.5-1.5S16.67 7 17.5 7s1.5.67 1.5 1.5S18.33 10 17.5 10zm-11 0c-.83 0-1.5-.67-1.5-1.5S5.67 7 6.5 7 8 7.67 8 8.5 7.33 10 6.5 10z"/></svg>`;
+const DiscordIcon = () => html`<svg viewBox="0 0 24 24"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.095 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.095 2.157 2.42 0 1.333-.947 2.418-2.157 2.418z"/></svg>`;
+const SteamIcon = () => html`<svg viewBox="0 0 24 24"><path d="M11.979 0C5.678 0 .511 4.86.022 11.037l6.432 2.658c.545-.371 1.203-.59 1.912-.59.063 0 .125.004.188.006l2.861-4.142V8.91c0-2.495 2.028-4.524 4.524-4.524 2.494 0 4.524 2.031 4.524 4.527s-2.03 4.525-4.524 4.525h-.105l-4.076 2.911c0 .052.004.105.004.159 0 1.875-1.515 3.396-3.39 3.396-1.635 0-3.016-1.173-3.331-2.727L.436 15.27C1.862 20.307 6.486 24 11.979 24c6.627 0 12-5.373 12-12S18.605 0 11.979 0zM7.54 18.21l-1.473-.61c.262.543.714.985 1.3 1.215 1.27.496 2.702-.136 3.199-1.406.241-.616.246-1.289.012-1.908-.233-.618-.688-1.098-1.28-1.332-.59-.232-1.213-.23-1.77-.03l1.523.63c.936.367 1.4 1.43 1.036 2.368-.367.94-1.43 1.403-2.368 1.036l-.18-.073zm11.81-9.3c0-1.662-1.353-3.015-3.015-3.015-1.665 0-3.015 1.353-3.015 3.015 0 1.665 1.35 3.015 3.015 3.015 1.663 0 3.015-1.35 3.015-3.015zm-5.273-.005c0-1.252 1.013-2.266 2.265-2.266 1.249 0 2.266 1.014 2.266 2.266 0 1.251-1.017 2.265-2.266 2.265-1.253 0-2.265-1.014-2.265-2.265z"/></svg>`;
+const GlobeIcon = () => html`<svg viewBox="0 0 24 24"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm0 1.5c.827 0 1.74.85 2.444 2.542.273.656.503 1.41.68 2.24H8.876c.177-.83.407-1.584.68-2.24C10.26 4.35 11.173 3.5 12 3.5zm-3.635 1.14c-.322.668-.594 1.42-.804 2.242H4.767a8.527 8.527 0 0 1 3.598-2.242zm7.27 0a8.527 8.527 0 0 1 3.598 2.242h-2.794c-.21-.822-.482-1.574-.804-2.242zM4.253 8.382h3.08A20.372 20.372 0 0 0 7.1 11.25H3.564a8.437 8.437 0 0 1 .689-2.868zm4.592 0h6.31c.165.9.26 1.86.283 2.868H8.562c.023-1.009.118-1.968.283-2.868zm7.822 0h3.08a8.437 8.437 0 0 1 .689 2.868H16.9a20.372 20.372 0 0 0-.233-2.868zM3.564 12.75H7.1c.028 1.013.113 1.984.233 2.868h-3.08a8.437 8.437 0 0 1-.689-2.868zm5.002 0h6.868c-.023 1.009-.118 1.968-.283 2.868h-6.302a19.38 19.38 0 0 1-.283-2.868zm8.434 0h3.436a8.437 8.437 0 0 1-.689 2.868h-3.08c.12-.884.205-1.855.233-2.868zm-9.876 4.368h5.752a12.13 12.13 0 0 1-.68 2.24C11.74 21.15 10.827 22 12 22c-1.173 0-2.26-.85-2.444-2.542 0 0-.273-.656-.68-2.24h.248zm-2.56 0h2.794c.21.822.482 1.574.804 2.242A8.527 8.527 0 0 1 4.564 17.118zm10.078 0h2.794a8.527 8.527 0 0 1-3.598 2.242c.322-.668.594-1.42.804-2.242z"/></svg>`;
+
+// Static social/footer links — built once, never change.
+const SOCIAL_BAR = html`
+  <div class="wsr-social-bar">
+    <a class="wsr-social-link" href=${REDDIT_URL} target="_blank" rel="noopener">
+      <${RedditIcon} /> Reddit
+    </a>
+    <a class="wsr-social-link" href=${DISCORD_URL} target="_blank" rel="noopener">
+      <${DiscordIcon} /> Discord
+    </a>
+    <a class="wsr-social-link" href=${STEAM_URL} target="_blank" rel="noopener">
+      <${SteamIcon} /> Steam
+    </a>
+    <a class="wsr-social-link" href=${WEBSITE_URL} target="_blank" rel="noopener">
+      <${GlobeIcon} /> Website
+    </a>
+  </div>
+`;
+
+// Static changelog markup — built once at module load, reused across all renders.
+// Previously this giant tree was rebuilt 5x/sec from the gamestate-poll re-render,
+// which made the main menu visibly laggy.
+const CHANGELOG_LIST = html`
+  <ul class="wsr-changelog-list">
+    ${CHANGELOG.map(c => html`
+      <li class="wsr-change">
+        <div class="wsr-change-ver">${c.ver}</div>
+        ${c.sections ? c.sections.map(s => html`
+          <div class="wsr-change-section-heading">${s.heading}</div>
+          <ul class="wsr-change-list">
+            ${s.items.map(it => html`<li>• ${it}</li>`)}
+          </ul>
+        `) : html`
+          <ul class="wsr-change-list">
+            ${c.items.map(it => html`<li>• ${it}</li>`)}
+          </ul>
+        `}
+      </li>
+    `)}
+  </ul>
+`;
+
+// Static credits markup — built once at module load. Long-form, prose-style
+// thank-yous in the tradition of game credits rolls. Edit cautiously; this is
+// the public record of who carried the project.
+const CREDITS_CONTENT = html`
+  <div class="wsr-credits">
+    <p class="wsr-credits-intro">
+      Wall Street Raider exists because a small handful of people refused to let it disappear.
+      The game has been in continuous development for over forty years, and the Steam Edition
+      you are playing today is the result of decades of devotion from its creator, the
+      patience of an online community that kept the flame alive, and a circle of friends and
+      collaborators who gave their time, their talent, and their honest feedback without ever
+      asking for a thing in return. To everyone listed below, and to every player who has
+      ever opened a save file and lost a weekend in the pursuit of imaginary profits: thank you.
+    </p>
+
+    <h3 class="wsr-credits-section">Lead Developers</h3>
+
+    <div class="wsr-credit-entry">
+      <div class="wsr-credit-name">Michael Dodd Jenkins</div>
+      <p class="wsr-credit-body">
+        The original developer of Wall Street Raider, and has been since 1984. He wrote the
+        first version on a Kaypro II in Microsoft BASIC, pouring everything he had learned as
+        a tax attorney about markets, dealmaking, accounting, and corporate maneuvering into
+        a simulation that no one else has come close to matching. For four decades he has
+        carried this project alone, line by line, refining the engine and the worldview
+        behind it. Thousands of business and financial professionals around the world have
+        credited his game with shaping how they think about capital, risk, and ownership.
+        Wall Street Raider is, and will always be, his.
+      </p>
+    </div>
+
+    <div class="wsr-credit-entry">
+      <div class="wsr-credit-name">Benjamin Ward</div>
+      <p class="wsr-credit-body">
+        Lead developer of the Remastered / Steam Edition. A senior software engineer with a
+        background in modern web applications and a deep affection for old programming
+        languages, Ben spent years figuring out how to wrap a 1980s PowerBASIC simulation
+        engine in a contemporary user interface without rewriting a single line of the
+        original game logic. Every menu, chart, and modal in the new client is a love letter
+        to Michael's work and to the players who have lived inside it.
+      </p>
+    </div>
+
+    <h3 class="wsr-credits-section">Art & Music</h3>
+
+    <div class="wsr-credit-entry">
+      <div class="wsr-credit-name">NairL85X</div>
+      <div class="wsr-credit-role">Visual Identity, Steam Store Artwork</div>
+      <p class="wsr-credit-body">
+        Designed every graphical asset on the Steam store: capsules, headers, library art,
+        and the full set of achievement icons. Wall Street Raider has the visual presence on Steam that it does because NairL85X took the time to give it one.
+      </p>
+    </div>
+
+    <div class="wsr-credit-entry">
+      <div class="wsr-credit-name">Brenden Jarrett</div>
+      <div class="wsr-credit-role">Composer</div>
+      <p class="wsr-credit-body">
+        The official composer of Wall Street Raider. A teaser of his score appears in the
+        most recent game trailer, with more on the way. Brenden is giving the game an
+        auditory identity to match the depth of its simulation, and the result will be the
+        first dedicated soundtrack in the game's forty-year history.
+      </p>
+    </div>
+
+    <h3 class="wsr-credits-section">Lead Inspirer</h3>
+
+    <div class="wsr-credit-entry">
+      <div class="wsr-credit-name">AJ Churchill</div>
+      <p class="wsr-credit-body">
+        Editor-in-Chief of Outsider Gaming, and the reason this remaster exists at all. It
+        was his Reddit post that first introduced Ben to Wall Street Raider, and it was that post that gave Ben the courage to reach out to Michael about
+        modernizing the game. AJ has since produced and distributed multiple interviews with
+        both developers, ensuring that the story of the game and the people behind it is
+        preserved for the next generation of players.
+      </p>
+    </div>
+
+    <div class="wsr-credit-entry">
+      <div class="wsr-credit-name">Clipknot</div>
+      <p class="wsr-credit-body">
+        The original Wall Street Raider content creator. Across hundreds of hours of patient,
+        in-depth YouTube videos spanning many versions of the game, he taught countless
+        players how to actually play, and gave the community something to gather around when
+        there was nothing else. There is a real and direct line between his channel and the
+        existence of the Wall Street Raider community today.
+      </p>
+    </div>
+
+    <h3 class="wsr-credits-section">Lead Supporters</h3>
+
+    <div class="wsr-credit-entry">
+      <div class="wsr-credit-name">Schlongsworth</div>
+      <div class="wsr-credit-role">Original and Current Lead Community Manager</div>
+      <p class="wsr-credit-body">
+        While working two jobs, Schlongsworth volunteered his time to build and moderate the
+        Discord server, and the culture, tone, and structure of the community there is
+        essentially his own creation. He has spent untold hours talking with Ben about
+        marketing strategy, community development, and what other game communities get right,
+        and he has been the steady voice of reason on direction, scope, and pace. The Wall
+        Street Raider community is as strong as it is because Schlongsworth chose to give it
+        his time.
+      </p>
+    </div>
+
+    <div class="wsr-credit-entry">
+      <div class="wsr-credit-name">Malor</div>
+      <div class="wsr-credit-role">Lead Moderator, Master of Quality</div>
+      <p class="wsr-credit-body">
+        Malor brought decades of game knowledge to every beta build, hunted bugs across
+        versions that no one else would have noticed, and held the project to a standard the
+        original game would recognize. He has been, along with Michael himself, the most
+        reliable litmus test for whether a proposed change fits the spirit of Wall Street
+        Raider, and his refusal to let small things slide is a large part of why this
+        version is shipping at the quality it is. He gave the project his time so that the
+        game he loves could be delivered to the next generation of players.
+      </p>
+    </div>
+
+    <div class="wsr-credit-entry">
+      <div class="wsr-credit-name">Daisy</div>
+      <div class="wsr-credit-role">Lead Moderator, Master of Morale</div>
+      <p class="wsr-credit-body">
+        From the very beginning, Daisy showed up as a veteran player whose mastery of the
+        original game gave her advice real weight. She drove internal conversations about
+        priorities, gameplay feel, and where the remaster needed to close the gap with the
+        classic experience, and she did it while keeping the team optimistic through long
+        stretches that were anything but easy. Her steady presence helped this project
+        survive its hardest months.
+      </p>
+    </div>
+
+    <div class="wsr-credit-entry">
+      <div class="wsr-credit-name">TrimBarktree</div>
+      <div class="wsr-credit-role">Lead Moderator, Master of Hype</div>
+      <p class="wsr-credit-body">
+        The first content creator to volunteer to showcase the beta on his YouTube channel,
+        and watching a long-time fan of the original game enjoy the new interface, on
+        camera, was the kind of motivation no roadmap can provide. Trim has also been a
+        core participant in internal discussions about direction and priorities, and a
+        tireless advocate for the project to the wider audience.
+      </p>
+    </div>
+
+    <div class="wsr-credit-entry">
+      <div class="wsr-credit-name">r3y_j04n</div>
+      <div class="wsr-credit-role">Core Playtester</div>
+      <p class="wsr-credit-body">
+        r3y_j04n has put in the hours that most players never see, working through builds,
+        surfacing issues, and giving the kind of grounded, repeatable feedback that turns a
+        beta into a release.
+      </p>
+    </div>
+
+    <h3 class="wsr-credits-section">Lead Community Helpers</h3>
+
+    <p class="wsr-credits-intro">
+      Long-time players who have given enormous amounts of their own time to the Wall Street
+      Raider community on Discord, patiently answering questions about the game's development
+      and leading discussions about strategy, content, and direction.
+    </p>
+
+    <ul class="wsr-credit-list">
+      <li>big if true</li>
+      <li>KANADA_PMA</li>
+    </ul>
+
+    <h3 class="wsr-credits-section">Honorable Mentions</h3>
+
+    <div class="wsr-credit-entry">
+      <div class="wsr-credit-name">justin</div>
+      <p class="wsr-credit-body">
+        justin showed up for two months. With backing from his two friends, he vibe-coded a
+        complete overhaul of the look and feel of the user interface, refused payment when
+        it was offered, hit a trillion dollars of net worth in the game, and then
+        disappeared. justin, and friends: your contributions are immortalized in the CSS
+        files of Wall Street Raider, and you are welcome back any time.
+      </p>
+    </div>
+
+    <h3 class="wsr-credits-section">Special Thanks</h3>
+
+    <p class="wsr-credits-outro">
+      To the entire Wall Street Raider Discord community, to every long-time player who ever
+      sent in a save file, to the lurkers, the strategists, the bug-finders, and the new
+      players who picked up the game on a whim and stayed. This game is for you.
+    </p>
+
+  </div>
+`;
+
+const MainMenu = () => {
+    const [quote, setQuote] = useState('');
+    const [showCredits, setShowCredits] = useState(false);
+    const loreSnippet = useMemo(() => LORE_SNIPPETS[Math.floor(Math.random() * LORE_SNIPPETS.length)], []);
+
+    useEffect(() => {
+        (async () => {
+            try {
+                const data = await api.getQuoteOfTheDay();
+                if (data && data.quote) {
+                    setQuote(data.quote);
+                }
+            } catch (err) {
+                console.error('Error fetching quote of the day:', err);
+            }
+        })();
+    }, []);
+
+    const localeWarning = localeManager.getWarningForLocale(localeManager.getCurrentLocale());
+
+
+    return html`
+    <div class="wsr-root" data-testid="main-menu">
+      ${!window.__WSR_E2E && html`<${ChartBackground} />`}
+      <div class="wsr-overlay">
+
+        <!-- ── Header ── -->
+        <header class="wsr-topbar glass">
+          <div class="wsr-topbar-brand">
+            <img src=${LOGO_SRC} alt="Wall Street Raider" class="wsr-logo-sm" />
+            <span class="wsr-terminal-title">Jenkins Terminal v${APP_VERSION}</span>
+          </div>
+          <div class="wsr-topbar-right">
+            <${Button} class="btn main-menu" data-testid="btn-credits" onClick=${() => setShowCredits(true)}>Credits</${Button}>
+            <${Button} class="btn main-menu" data-testid="btn-help" onClick=${() => window.open('assets/help/wsrbook.htm', '_blank')}>Help</${Button}>
+            <${SettingsModal}>
+              <${Button} class="btn main-menu">Settings</${Button}>
+            <//>
+            <${LocalizationDropdown} />
+            <span class="wsr-version">Early Access</span>
+          </div>
+        </header>
+
+        <!-- ── Hero ── -->
+        <div class="wsr-hero-wrap">
+          <div class="wsr-hero">
+            <img src=${LOGO_SRC} alt="Wall Street Raider" class="wsr-hero-logo" />
+
+            <div class="wsr-divider"></div>
+
+            <div class="wsr-tagline">The most realistic Wall Street simulation ever created</div>
+
+            <div class="wsr-stats">
+              <span class="wsr-stat">
+                <span class="wsr-stat-value">1,600</span>
+                <span class="wsr-stat-label">Simulated Companies</span>
+              </span>
+              <span class="wsr-stat-sep">\u00b7</span>
+              <span class="wsr-stat">
+                <span class="wsr-stat-label">Played in</span>
+                <span class="wsr-stat-value">124</span>
+                <span class="wsr-stat-label">countries</span>
+              </span>
+              <span class="wsr-stat-sep">\u00b7</span>
+              <span class="wsr-stat">
+                <span class="wsr-stat-label">In development for</span>
+                <span class="wsr-stat-value">40</span>
+                <span class="wsr-stat-label">years</span>
+              </span>
+            </div>
+
+            <div class="wsr-divider"></div>
+
+            <div class="wsr-hero-buttons">
+              <${Button} class="btn green main-menu" data-testid="btn-load-game" onClick=${api.loadGame}>Load Game</${Button}>
+              <${Button} class="btn green main-menu" data-testid="btn-new-game" onClick=${api.newGame}>New Game</${Button}>
+              <${Button} class="btn main-menu" data-testid="btn-exit" onClick=${api.exitToDesktop}>Exit</${Button}>
+            </div>
+
+            ${quote && html`
+              <div class="wsr-quote-wrap">
+                <blockquote class="wsr-quote">
+                  ${renderMultilineText(quote.trim(), { additionalDelimiters: [] })}
+                </blockquote>
+              </div>
+            `}
+          </div>
+        </div>
+
+        <!-- ── Bottom panels ── -->
+        <div class="wsr-panels">
+          <!-- The Story -->
+          <div class="wsr-panel">
+            <div class="wsr-panel-header">
+              <span class="wsr-panel-title">The Story</span>
+            </div>
+            <div class="wsr-panel-body">
+              <p class="wsr-lore-text">${loreSnippet}</p>
+              <a class="wsr-lore-link" href=${WEBSITE_URL} target="_blank" rel="noopener">
+                Read the full story at wallstreetraider.com \u2192
+              </a>
+            </div>
+          </div>
+
+          <!-- Changelog -->
+          <div class="wsr-panel">
+            <div class="wsr-panel-header">
+              <span class="wsr-panel-title">Changelog</span>
+            </div>
+            <div class="wsr-panel-body">
+              ${CHANGELOG_LIST}
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Footer ── -->
+        <footer class="wsr-footer glass">
+          <span class="wsr-footer-copy">Copyright \u00a9 1986-${new Date().getFullYear()}, All Rights Reserved, Roninsoft and Hackjack Games</span>
+          ${localeWarning}
+          ${SOCIAL_BAR}
+          <span class="wsr-legal">Simulated markets. Not investment advice.</span>
+        </footer>
+
+        <${Modal} show=${showCredits} onClose=${() => setShowCredits(false)} hideHintLightbulb=${true} class="modal-card credits-modal">
+          <div class="wsr-credits-header">
+            <span class="wsr-credits-title">Credits</span>
+            <${Button} class="btn main-menu" onClick=${() => setShowCredits(false)}>Close</${Button}>
+          </div>
+          <div class="wsr-credits-scroll">
+            ${CREDITS_CONTENT}
+          </div>
+        <//>
+
+      </div>
+    </div>
+  `;
+};
+
+export default MainMenu;

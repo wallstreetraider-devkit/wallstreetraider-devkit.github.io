@@ -1,0 +1,34 @@
+# Ignore generated docs and dependencies
+node_modules/
+out_docs/
+
+# Ignore proprietary game binaries
+*.EXE
+*.DLL
+*.DAT
+*.PRM
+*.BIN
+*.PAK
+*.WSR
+*.ORI
+*.INI
+*.LOG
+*.TXT
+*.BMP
+*.ICO
+*.JPG
+*.GIF
+*.PNG
+*.exe
+*.dll
+*.dat
+*.prm
+*.bin
+*.pak
+*.log
+*.txt
+*.bmp
+*.jpg
+*.gif
+*.png
+!assets/

@@ -1,0 +1,89 @@
+import { html, render, useState, useEffect, useRef } from '../lib/preact.standalone.module.js';
+import '../lib/tailwind.module.js';
+import * as api from '../api.js';
+import { insertCurrencySymbols } from './helpers.js';
+
+
+const Tabs = ({ children, activeTab: externalActiveTab, onTabChange, preferredTabField }) => {
+    const tabChildren = Array.isArray(children) ? children.filter(child => (child?.props?.label ?? false)) : [children];
+    const tabLabels = tabChildren.map(child => child.props.label);
+    const [activeTab, setActiveTab] = useState(externalActiveTab || tabLabels[0]);
+
+    const changeTab = (newTab) => {
+        setActiveTab(newTab);
+        onTabChange?.(newTab);
+    }
+
+    useEffect(() => {
+        if (!tabLabels.includes(activeTab)) {
+            // Prefer the externally-requested tab if it's valid; otherwise use the first tab.
+            // Avoids triggering side-effect navigation (e.g. Search → viewDbSearch) when a
+            // conditional tab disappears and the fallback would otherwise be tabLabels[0].
+            const fallback = (externalActiveTab && tabLabels.includes(externalActiveTab))
+                ? externalActiveTab
+                : tabLabels[0];
+            changeTab(fallback);
+        }
+    }, [children])
+
+    useEffect(() => {
+        if (externalActiveTab !== activeTab && tabLabels.includes(externalActiveTab)) {
+            changeTab(externalActiveTab);
+        }
+    }, [externalActiveTab]);
+
+    useEffect(() => {
+        const tab = tabChildren.find(child => child.props.label === activeTab);
+        if (tab?.props.id !== undefined) {
+            api.setActiveUIReport(tab.props.id);
+        }
+    }, [activeTab]);
+
+    // Optional: write the active tab label to a gameState field so the hint
+    // matcher can read it from deriveContext (see hintMatcher.js).
+    // Consumers opt in by passing the field name; tabs that don't participate
+    // in hint matching (internal settings tabs, etc.) omit the prop.
+    // Tab-label normalization (lowercase, spaces → hyphens) is done by
+    // deriveContext, not here — the raw label goes onto gameState.
+    useEffect(() => {
+        if (!preferredTabField || activeTab == null) return;
+        const store = api.gameStore.getState();
+        const gs = store.gameState || {};
+        if (gs[preferredTabField] === activeTab) return;
+        store.setGameState({ ...gs, [preferredTabField]: activeTab });
+    }, [activeTab, preferredTabField]);
+
+    return html`
+    <div class="flex flex-col w-full h-full min-h-0">
+        <!-- Tab Header Row -->
+        <div class="flex flex-row flex-wrap items-center" data-tutorial="tab-row" style="gap: 5px;">
+            ${tabLabels.map((label, i) => {
+                return html`
+                <div
+                    class=${`tab-button ${label === activeTab ? 'active' : ''}`}
+                    onClick=${() => {
+                        if (label !== activeTab) {
+                            changeTab(label);
+                        }
+                    }}
+                >
+                    ${insertCurrencySymbols(label)}
+                </div>
+            `})}
+        </div>
+
+        <!-- Active Tab Content -->
+        <div class="flex-1 overflow-y-auto h-full panel p-2 min-h-0">
+            ${tabChildren.map(child =>
+        child.props.label === activeTab ? html`<div class="h-full">${child.props.children}</div>` : ''
+    )}
+        </div>
+    </div>
+    `;
+};
+
+export const Tab = ({ children }) => {
+    return html`<div class="h-full">${children}</div>`;
+};
+
+export default Tabs;

@@ -1,0 +1,105 @@
+/* =========================================================
+   Game View - Top bar, game area, footer
+   ========================================================= */
+
+/* Top bar */
+.top-bar {
+  display: flex;
+  align-items: center;
+  height: 44px;
+  background: linear-gradient(180deg, rgba(21,27,39,0.92), rgba(11,15,21,0.92));
+  color: var(--fg-primary);
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border-light);
+  backdrop-filter: blur(6px);
+  overflow: visible;
+}
+
+.top-bar .label,
+.top-bar label {
+  color: rgba(230,235,245,0.85);
+}
+
+/* Game view container — fills remaining space after toolbar, ticker, and footer */
+.game-view {
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Portrait layout: [sidebar | news] on top, view full-width below, 50/50 height */
+@media (orientation: portrait) {
+  .game-view {
+    flex-direction: column !important;
+    overflow: hidden;
+  }
+
+  /* Top panels row: half the available height, stays side-by-side */
+  .game-top-panels {
+    flex: 1 1 0% !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* View: other half */
+  .game-col-view {
+    flex: 1 1 0% !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 0;
+    height: unset !important;
+    overflow: auto;
+  }
+}
+
+/* Footer */
+.gameui-footer {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: linear-gradient(90deg, rgba(184,107,255,0.22), rgba(13,84,115,0.18));
+  color: var(--fg-primary);
+}
+
+/* Date display */
+.date-display {
+  color: var(--fg-primary);
+  font-size: var(--font-size-sm);
+}
+
+/* Notification badge */
+.notification {
+  position: relative;
+  display: inline-block;
+  height: 32px;
+  color: var(--fg-primary);
+}
+
+.notification svg {
+  fill: var(--fg-primary);
+}
+
+.notification:hover {
+  fill: var(--accent-secondary);
+}
+
+.notification .badge {
+  position: absolute;
+  top: -8px;
+  right: -9px;
+  background: var(--color-negative);
+  color: white;
+  border-radius: 9999px;
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+  line-height: 1;
+  padding: 1px 3px;
+  min-width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
