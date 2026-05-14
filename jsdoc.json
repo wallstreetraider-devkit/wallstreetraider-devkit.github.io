@@ -1,0 +1,40 @@
+{
+    "source": {
+        "include": ["js/api.js"],
+        "includePattern": ".+\\.js(doc|x)?$",
+        "excludePattern": "(^|\\/|\\\\)_"
+    },
+    "templates": {
+        "cleanslate": {
+            "static": true
+        },
+        "default": {
+            "staticFiles": {
+                "include": ["static"]
+            }
+        }
+    }
+,
+    "opts": {
+        "template": "node_modules/clean-jsdoc-theme",
+        "encoding": "utf8",
+        "destination": "./out_docs/",
+        "recurse": true,
+        "readme": "DOCS_README.md",
+        "theme_opts": {
+            "title": "Wall Street Raider API",
+            "menu": [
+                {
+                    "title": "<i class='fab fa-github' style='font-size: 20px;'></i>",
+                    "link": "https://github.com/wallstreetraider-devkit/wallstreetraider-devkit.github.io",
+                    "target": "_blank",
+                    "id": "github-link-item"
+                }
+            ],
+            "homepage_url": "https://wallstreetraider-devkit.github.io/",
+            "search": true,
+            "font_awesome": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css",
+            "scripts": ["scripts/custom-scripts.js"]
+        }
+    }
+}

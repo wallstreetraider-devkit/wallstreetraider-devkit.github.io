@@ -5,7 +5,7 @@
   "description": "Wall $treet Raider Electron UI",
   "author": "Ben Ward",
   "scripts": {
-    "build:docs": "jsdoc js/api.js -R DOCS_README.md -t node_modules/clean-jsdoc-theme -d out_docs"
+    "build:docs": "jsdoc -c jsdoc.json"
   },
   "dependencies": {
     "fast-json-patch": "^3.1.1",
